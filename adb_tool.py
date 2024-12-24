@@ -227,7 +227,6 @@ def install_launcher():
     else:
         print(f"{Fore.YELLOW}Неопределённое количество пользователей: {user_count}. "
               f"Ничего не устанавливаем или устанавливаем по умолчанию.{Style.RESET_ALL}")
-        # Можно добавить дополнительную логику для других случаев
 
 
 @requires_adb_connection
@@ -236,31 +235,14 @@ def install_reset_app():
     run_adb_command("adb install Reset.apk")
 
 
-@requires_adb_connection
-def install_apps():
-    try:
-        script_dir = os.path.abspath(os.path.dirname(__file__))
-        apps = [
-            "com.lixiang.chat.store.apk",
-            "Android_Settings.apk",
-            "SMS_Messenger.apk",
-            "Waze.apk",
-            "SwiftKey.apk",
-            "YouTube_CarWizard.apk",
-        ]
 
+def give_permission_for_keyboard():
         user_count = get_user_count()
-
-        # Decide which user IDs to target based on the actual device environment
-        # If you have more logic for user IDs, adjust here.
         if user_count == 1:
             user_indexes = [0]
         else:
-            # Example if you already know the extra user IDs 
-            # (e.g., a rear user, a system user, etc.).
             user_indexes = [0, 21473, 6174]
 
-        # Enable SwiftKey IME for each user
         for user in user_indexes:
             print(f"Configuring IME for user {user}...")
             run_adb_command(
@@ -269,7 +251,23 @@ def install_apps():
             run_adb_command(
                 f"adb shell ime set --user {user} com.touchtype.swiftkey/com.touchtype.KeyboardService"
             )
+            
+            
 
+@requires_adb_connection
+def install_apps():
+    try:
+        script_dir = os.path.abspath(os.path.dirname(__file__))
+        apps = [
+            "com.lixiang.chat.store.apk",
+            "SwiftKey.apk",
+            "YouTube_CarWizard.apk",
+        ]
+        run_adb_command("adb install --user 0 Waze.apk")
+        run_adb_command("adb install --user 0 SMS_Messenger.apk")
+        run_adb_command("adb install --user 0 Android_Settings.apk")
+        give_permission_for_keyboard()
+        install_launcher()
         # Install apps
         print(f"{Fore.GREEN}Starting app installation...{Style.RESET_ALL}")
         for app in apps:
@@ -287,6 +285,7 @@ def install_apps():
         print(f"{Fore.RED}An unexpected error occurred: {e}{Style.RESET_ALL}")
     finally:
         pause_for_user()
+
 
 
 def menu():
