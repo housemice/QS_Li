@@ -333,8 +333,8 @@ def menu():
             elif action == "Install apps":
                 install_apps()
             elif action == "Help":
-                print(f"{Fore.YELLOW}Help is under construction. Please check back soon.{Style.RESET_ALL}")
-                print("Version 3")
+                print(f"{Fore.YELLOW}@dexnot{Style.RESET_ALL}")
+                print("Version 0.0.3")
                 pause_for_user()
         except KeyboardInterrupt:
             # Gracefully handle CTRL+C
