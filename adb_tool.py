@@ -211,7 +211,6 @@ def delete_all_apps():
         print(f"Deleting {package}...")
         run_adb_command(f"adb uninstall {package}")
 
-
 @requires_adb_connection
 def install_launcher():
     print("Installing launcher(s)...")
@@ -228,13 +227,10 @@ def install_launcher():
         print(f"{Fore.YELLOW}Неопределённое количество пользователей: {user_count}. "
               f"Ничего не устанавливаем или устанавливаем по умолчанию.{Style.RESET_ALL}")
 
-
 @requires_adb_connection
 def install_reset_app():
     print("Installing reset app...")
     run_adb_command("adb install Reset.apk")
-
-
 
 def give_permission_for_keyboard():
         user_count = get_user_count()
@@ -252,8 +248,6 @@ def give_permission_for_keyboard():
                 f"adb shell ime set --user {user} com.touchtype.swiftkey/com.touchtype.KeyboardService"
             )
             
-            
-
 @requires_adb_connection
 def install_apps():
     try:
@@ -266,8 +260,11 @@ def install_apps():
         run_adb_command("adb install --user 0 Waze.apk")
         run_adb_command("adb install --user 0 SMS_Messenger.apk")
         run_adb_command("adb install --user 0 Android_Settings.apk")
+        pause_for_user("All apps installed. Press Enter to continue...")
         give_permission_for_keyboard()
+        pause_for_user("Permission for keyboard are given, check if keyboard is working. Press Enter to continue...")
         install_launcher()
+        
         # Install apps
         print(f"{Fore.GREEN}Starting app installation...{Style.RESET_ALL}")
         for app in apps:
@@ -285,8 +282,6 @@ def install_apps():
         print(f"{Fore.RED}An unexpected error occurred: {e}{Style.RESET_ALL}")
     finally:
         pause_for_user()
-
-
 
 def menu():
     while True:
