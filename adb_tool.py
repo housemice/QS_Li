@@ -113,7 +113,7 @@ def requires_adb_connection(func):
     return wrapper
 
 
-def display_header(device_name=None):
+def display_header(vin=None):
     header = f"""
     {Fore.GREEN}
   ▄████████ ▀█████████▄     ▄████████    ▄████████    ▄█    █▄     ▄█      ███     
@@ -128,10 +128,8 @@ def display_header(device_name=None):
     """
     clear_screen()
     print(header)
-    if device_name:
-        print(f"{Fore.YELLOW}Connected Device: {device_name}{Style.RESET_ALL}")
-    else:
-        print(f"{Fore.RED}No device connected.{Style.RESET_ALL}")
+    if vin:
+        print(f"{Fore.YELLOW}Connected Device VIN: {vin}{Style.RESET_ALL}")
 
 
 @requires_adb_connection
@@ -192,7 +190,6 @@ def list_and_delete_apps():
     else:
         print(f"{Fore.YELLOW}No apps selected for deletion.{Style.RESET_ALL}")
 
-
 @requires_adb_connection
 def delete_all_apps():
     """
@@ -232,7 +229,7 @@ def install_reset_app():
     print("Installing reset app...")
     run_adb_command("adb install Reset.apk")
 
-def give_permission_for_keyboard():
+def give_permission():
         user_count = get_user_count()
         if user_count == 1:
             user_indexes = [0]
@@ -241,12 +238,15 @@ def give_permission_for_keyboard():
 
         for user in user_indexes:
             print(f"Configuring IME for user {user}...")
+            run_adb_command(f'adb shell "appops set --user {user} com.lixiang.chat.store REQUEST_INSTALL_PACKAGES allow"')
             run_adb_command(
                 f"adb shell ime enable --user {user} com.touchtype.swiftkey/com.touchtype.KeyboardService"
             )
             run_adb_command(
                 f"adb shell ime set --user {user} com.touchtype.swiftkey/com.touchtype.KeyboardService"
             )
+            
+        
             
 @requires_adb_connection
 def install_apps():
@@ -261,8 +261,8 @@ def install_apps():
         run_adb_command("adb install --user 0 SMS_Messenger.apk")
         run_adb_command("adb install --user 0 Android_Settings.apk")
         pause_for_user("All apps installed. Press Enter to continue...")
-        give_permission_for_keyboard()
-        pause_for_user("Permission for keyboard are given, check if keyboard is working. Press Enter to continue...")
+        give_permission()
+        pause_for_user("Permissions for keayboard and LiApp Store are given, check if keyboard is working. Press Enter to continue...")
         install_launcher()
         
         # Install apps
@@ -282,14 +282,38 @@ def install_apps():
         print(f"{Fore.RED}An unexpected error occurred: {e}{Style.RESET_ALL}")
     finally:
         pause_for_user()
+        
+        
+def get_device_vin():
+    """
+    Retrieves the VIN of the connected device using an ADB command.
+    Replace 'command_to_get_vin' with the actual command that fetches the VIN.
+    """
+    try:
+        result = subprocess.run(
+            "adb shell command_to_get_vin",  # Replace with the actual command
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            shell=True,
+            text=True
+        )
+        if result.returncode == 0:
+            vin = result.stdout.strip()
+            if vin:
+                return vin
+        return "Unknown VIN"  # Fallback if VIN is not retrievable
+    except Exception as e:
+        print(f"{Fore.RED}Failed to retrieve VIN: {e}{Style.RESET_ALL}")
+        return "Unknown VIN"
 
 def menu():
     while True:
         try:
-            # Check device connection and get device info
-            connected, device_info = check_adb_connection()
-            device_name = device_info if connected else None
-            display_header(device_name)
+            # Check device connection and get VIN info
+            connected, _ = check_adb_connection()
+            vin = get_device_vin() if connected else "No car connected"
+            
+            display_header(vin)  # Display VIN in the header
 
             questions = [
                 inquirer.List(
@@ -338,7 +362,6 @@ def menu():
         except Exception as e:
             print(f"{Fore.RED}An unexpected error occurred: {e}{Style.RESET_ALL}")
             pause_for_user("Returning to the menu...")
-
 
 if __name__ == "__main__":
     menu()
