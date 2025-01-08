@@ -48,21 +48,27 @@ def clear_screen():
 
 def run_adb_command(command):
     try:
+        print(f"{Fore.CYAN}Executing: {command}{Style.RESET_ALL}")
         result = subprocess.run(
             command,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             shell=True,
-            text=True
+            text=True,
+            timeout=30
         )
         if result.returncode == 0:
             if result.stdout.strip():
                 print(f"{Fore.GREEN}{result.stdout.strip()}{Style.RESET_ALL}")
             return True
         else:
+            print(f"{Fore.RED}Command failed with error code {result.returncode}{Style.RESET_ALL}")
             print(f"{Fore.RED}Error: {result.stderr.strip()}{Style.RESET_ALL}")
             pause_for_user("Press Enter to acknowledge the error and return.")
             return False
+    except subprocess.TimeoutExpired:
+        print(f"{Fore.RED}Command timed out after 30 seconds{Style.RESET_ALL}")
+        return False
     except Exception as e:
         print(f"{Fore.RED}An unexpected error occurred: {e}{Style.RESET_ALL}")
         pause_for_user("Press Enter to acknowledge the error and return.")
@@ -229,82 +235,132 @@ def install_reset_app():
     print("Installing reset app...")
     run_adb_command("adb install Reset.apk")
 
+@requires_adb_connection
+def install_apps():
+    try:
+        script_dir = os.path.abspath(os.path.dirname(__file__))
+        apps_config = {
+            "Waze.apk": "--user 0",
+            "SMS_Messenger.apk": "--user 0",
+            "Android_Settings.apk": "--user 0",
+            "com.lixiang.chat.store.apk": "",
+            "SwiftKey.apk": "", 
+            "YouTube_CarWizard.apk": "",
+        }
+        
+        missing_files = []
+        for app in apps_config.keys():
+            if not os.path.exists(os.path.join(script_dir, app)):
+                missing_files.append(app)
+        
+        if missing_files:
+            print(f"{Fore.RED}Missing required files:{Style.RESET_ALL}")
+            for file in missing_files:
+                print(f"- {file}")
+            return False
+
+        for app, options in apps_config.items():
+            app_path = os.path.join(script_dir, app)
+            print(f"{Fore.CYAN}Installing {app}...{Style.RESET_ALL}")
+            command = f"adb install {options} \"{app_path}\""
+            if not run_adb_command(command):
+                print(f"{Fore.RED}Failed to install {app}{Style.RESET_ALL}")
+                return False
+
+        # После установки всех приложений выдаем разрешения
+        print(f"{Fore.CYAN}All apps installed. Configuring permissions...{Style.RESET_ALL}")
+        give_permission()
+        
+        print(f"{Fore.GREEN}All apps installed and configured successfully!{Style.RESET_ALL}")
+        return True
+        
+    except Exception as e:
+        print(f"{Fore.RED}An unexpected error occurred during installation: {e}{Style.RESET_ALL}")
+        return False
+    finally:
+        pause_for_user()
+
 def give_permission():
+    try:
         user_count = get_user_count()
         if user_count == 1:
             user_indexes = [0]
         else:
             user_indexes = [0, 21473, 6174]
 
+        # Сначала выдаем разрешения для установки пакетов
         for user in user_indexes:
-            print(f"Configuring IME for user {user}...")
+            print(f"{Fore.CYAN}Configuring permissions for user {user}...{Style.RESET_ALL}")
             run_adb_command(f'adb shell "appops set --user {user} com.lixiang.chat.store REQUEST_INSTALL_PACKAGES allow"')
+
+        # Делаем небольшую паузу, чтобы система успела обработать установку клавиатуры
+        time.sleep(2)
+
+        # Затем настраиваем клавиатуру
+        for user in user_indexes:
+            print(f"{Fore.CYAN}Configuring keyboard for user {user}...{Style.RESET_ALL}")
             run_adb_command(
                 f"adb shell ime enable --user {user} com.touchtype.swiftkey/com.touchtype.KeyboardService"
             )
             run_adb_command(
                 f"adb shell ime set --user {user} com.touchtype.swiftkey/com.touchtype.KeyboardService"
             )
-            
-        
-            
-@requires_adb_connection
-def install_apps():
-    try:
-        script_dir = os.path.abspath(os.path.dirname(__file__))
-        apps = [
-            "com.lixiang.chat.store.apk",
-            "SwiftKey.apk",
-            "YouTube_CarWizard.apk",
-        ]
-        run_adb_command("adb install --user 0 Waze.apk")
-        run_adb_command("adb install --user 0 SMS_Messenger.apk")
-        run_adb_command("adb install --user 0 Android_Settings.apk")
-        pause_for_user("All apps installed. Press Enter to continue...")
-        give_permission()
-        pause_for_user("Permissions for keayboard and LiApp Store are given, check if keyboard is working. Press Enter to continue...")
-        install_launcher()
-        
-        # Install apps
-        print(f"{Fore.GREEN}Starting app installation...{Style.RESET_ALL}")
-        for app in apps:
-            app_path = os.path.join(script_dir, app)
-            if os.path.exists(app_path):
-                print(f"Installing {app}...")
-                success = run_adb_command(f"adb install \"{app_path}\"")
-                if not success:
-                    print(f"{Fore.RED}Failed to install {app}. Skipping...{Style.RESET_ALL}")
-            else:
-                print(f"{Fore.RED}File {app} not found in {script_dir}. Skipping...{Style.RESET_ALL}")
-
-        print(f"{Fore.GREEN}App installation process completed successfully!{Style.RESET_ALL}")
     except Exception as e:
-        print(f"{Fore.RED}An unexpected error occurred: {e}{Style.RESET_ALL}")
-    finally:
-        pause_for_user()
-        
-        
+        print(f"{Fore.RED}An error occurred while giving permission: {e}{Style.RESET_ALL}")
+
 def get_device_vin():
     """
-    Retrieves the VIN of the connected device using an ADB command.
-    Replace 'command_to_get_vin' with the actual command that fetches the VIN.
+    Retrieves the VIN of the connected device using ADB.
     """
     try:
+        # Проверяем подключение перед запросом VIN
+        connected, _ = check_adb_connection()
+        if not connected:
+            return "No device connected"
+            
+        # Пробуем несколько команд для получения VIN
+        commands = [
+            "adb shell getprop ro.vin",
+            "adb shell getprop persist.sys.vin",
+            # Добавьте другие возможные команды здесь
+        ]
+        
+        for cmd in commands:
+            result = subprocess.run(
+                cmd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                shell=True,
+                text=True,
+                timeout=5
+            )
+            if result.returncode == 0 and result.stdout.strip():
+                return result.stdout.strip()
+                
+        return "VIN not available"
+    except Exception as e:
+        print(f"{Fore.RED}Failed to retrieve VIN: {e}{Style.RESET_ALL}")
+        return "Error getting VIN"
+
+def check_adb_version():
+    try:
         result = subprocess.run(
-            "adb shell command_to_get_vin",  # Replace with the actual command
+            "adb version",
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             shell=True,
             text=True
         )
         if result.returncode == 0:
-            vin = result.stdout.strip()
-            if vin:
-                return vin
-        return "Unknown VIN"  # Fallback if VIN is not retrievable
+            version = result.stdout.strip()
+            print(f"{Fore.GREEN}ADB version: {version}{Style.RESET_ALL}")
+            return True
+        else:
+            print(f"{Fore.RED}ADB not found or not properly installed{Style.RESET_ALL}")
+            return False
     except Exception as e:
-        print(f"{Fore.RED}Failed to retrieve VIN: {e}{Style.RESET_ALL}")
-        return "Unknown VIN"
+        print(f"{Fore.RED}Error checking ADB version: {e}{Style.RESET_ALL}")
+        return False
 
 def menu():
     while True:
@@ -364,4 +420,7 @@ def menu():
             pause_for_user("Returning to the menu...")
 
 if __name__ == "__main__":
+    if not check_adb_version():
+        print(f"{Fore.RED}Please install ADB before running this tool{Style.RESET_ALL}")
+        sys.exit(1)
     menu()
