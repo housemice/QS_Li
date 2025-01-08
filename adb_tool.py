@@ -2,10 +2,208 @@ import os
 import sys
 import time
 import subprocess
+import requests
+import json
+from packaging import version
 
 import inquirer
 from colorama import Fore, Style
 
+# Определяем режим разработки через переменную окружения
+DEV_MODE = False
+
+CURRENT_VERSION = "0.1"
+GITHUB_REPO = "housemice/QS_Li"
+GITHUB_API_URL = f"https://api.github.com/repos/{GITHUB_REPO}/releases/latest"
+
+# Тестовый код будет включен только если DEV_MODE = True
+if DEV_MODE:
+    class TestDevice:
+        def __init__(self):
+            self.connected = True
+            self.vin = "TEST1234567890"
+            self.apps_installed = []
+            self.permissions_granted = False
+            self.keyboard_configured = False
+
+        def toggle_connection(self):
+            self.connected = not self.connected
+            return self.connected
+
+        def install_app(self, app_name):
+            time.sleep(1)
+            if self.connected:
+                self.apps_installed.append(app_name)
+                return True
+            return False
+
+        def grant_permissions(self):
+            if self.connected:
+                time.sleep(0.5)
+                self.permissions_granted = True
+                return True
+            return False
+
+        def configure_keyboard(self):
+            if self.connected:
+                time.sleep(0.5)
+                self.keyboard_configured = True
+                return True
+            return False
+
+    def _run_test_scenario(scenario_name, test_device):
+        if scenario_name == "Installation Success":
+            test_device.connected = True
+            return _test_installation_flow(test_device)
+        elif scenario_name == "No Device":
+            test_device.connected = False
+            return _test_no_device_flow(test_device)
+        elif scenario_name == "Permission Failure":
+            test_device.connected = True
+            return _test_permission_failure(test_device)
+
+    def _test_installation_flow(test_device):
+        success = True
+        apps = ["Waze", "SMS Messenger", "Android Settings", "Li Chat Store", "SwiftKey", "YouTube"]
+        for app in apps:
+            if test_device.install_app(app):
+                print(f"{Fore.GREEN}✓ Installed {app}{Style.RESET_ALL}")
+            else:
+                print(f"{Fore.RED}✗ Failed to install {app}{Style.RESET_ALL}")
+                success = False
+        
+        if test_device.grant_permissions():
+            print(f"{Fore.GREEN}✓ Permissions granted{Style.RESET_ALL}")
+        else:
+            print(f"{Fore.RED}✗ Failed to grant permissions{Style.RESET_ALL}")
+            success = False
+        return success
+
+    def _test_no_device_flow(test_device):
+        if not test_device.connected:
+            print(f"{Fore.GREEN}✓ Correctly detected no device{Style.RESET_ALL}")
+            return True
+        return False
+
+    def _test_permission_failure(test_device):
+        test_device.permissions_granted = False
+        if not test_device.permissions_granted:
+            print(f"{Fore.GREEN}✓ Correctly handled permission failure{Style.RESET_ALL}")
+            return True
+        return False
+
+    def run_tests():
+        clear_screen()
+        display_header()
+        
+        test_device = TestDevice()
+        scenarios = [
+            "Installation Success",
+            "No Device",
+            "Permission Failure"
+        ]
+        
+        results = {}
+        for scenario in scenarios:
+            clear_screen()
+            display_header()
+            print(f"\n{Fore.CYAN}=== Test Device Status ==={Style.RESET_ALL}")
+            print(f"Connected: {Fore.GREEN if test_device.connected else Fore.RED}{'✓' if test_device.connected else '✗'}{Style.RESET_ALL}")
+            print(f"VIN: {test_device.vin}")
+            print(f"Apps Installed: {len(test_device.apps_installed)}")
+            results[scenario] = _run_test_scenario(scenario, test_device)
+            pause_for_user(f"Press Enter to continue testing...", timeout=3)
+        
+        clear_screen()
+        display_header()
+        print(f"\n{Fore.CYAN}=== Test Results ==={Style.RESET_ALL}")
+        for scenario, success in results.items():
+            status = f"{Fore.GREEN}✓ PASSED{Style.RESET_ALL}" if success else f"{Fore.RED}✗ FAILED{Style.RESET_ALL}"
+            print(f"{scenario}: {status}")
+        
+        pause_for_user()
+
+def menu():
+    choices = [
+        "Delete all apps",
+        "Delete selected apps",
+        "Install Custom_Apps",
+        "Install launcher",
+        "Install reset app",
+        "Install apps",
+        "Help",
+        "Exit"
+    ]
+    
+    # Добавляем пункт тестирования только в режиме разработки
+    if DEV_MODE:
+        choices.insert(0, "Run Tests")
+
+    last_vin = None
+    while True:
+        try:
+            clear_screen()
+            
+            # Динамическая проверка подключения и VIN
+            connected, device_info = check_adb_connection()
+            current_vin = get_device_vin() if connected else "No car connected"
+            
+            # Всегда показываем хедер
+            display_header(current_vin)
+            last_vin = current_vin
+            
+            if connected:
+                status_line = f"{Fore.GREEN}Connected to: {device_info}{Style.RESET_ALL}"
+            else:
+                status_line = f"{Fore.RED}No device connected{Style.RESET_ALL}"
+            
+            print(f"\n{status_line}")
+            
+            questions = [
+                inquirer.List(
+                    "action",
+                    message="Select an action using arrow keys:",
+                    choices=choices,
+                )
+            ]
+            answers = inquirer.prompt(questions)
+            action = answers.get("action")
+            
+            if action == "Exit":
+                print(f"{Fore.GREEN}Exiting the program...{Style.RESET_ALL}")
+                break
+            
+            clear_screen()
+            display_header(current_vin)
+            
+            # Route user's selection to the corresponding function
+            if action == "Delete all apps":
+                delete_all_apps()
+            elif action == "Delete selected apps":
+                list_and_delete_apps()
+            elif action == "Install Custom_Apps":
+                install_custom_apps()
+            elif action == "Install launcher":
+                install_launcher()
+            elif action == "Install reset app":
+                install_reset_app()
+            elif action == "Install apps":
+                install_apps()
+            elif action == "Help":
+                print(f"{Fore.YELLOW}@dexnot{Style.RESET_ALL}")
+                print("Version 0.1")
+                pause_for_user()
+            elif action == "Run Tests":
+                run_tests()
+                
+        except KeyboardInterrupt:
+            print(f"\n{Fore.RED}Interrupted by user. Exiting...{Style.RESET_ALL}")
+            break
+        except Exception as e:
+            clear_screen()
+            display_header(current_vin)
+            print(f"{Fore.RED}An unexpected error occurred: {e}{Style.RESET_ALL}")
+            pause_for_user("Returning to the menu...")
 
 def get_user_count():
     try:
@@ -120,6 +318,9 @@ def requires_adb_connection(func):
 
 
 def display_header(vin=None):
+    """
+    Отображает логотип и информацию о VIN
+    """
     header = f"""
     {Fore.GREEN}
   ▄████████ ▀█████████▄     ▄████████    ▄████████    ▄█    █▄     ▄█      ███     
@@ -130,9 +331,8 @@ def display_header(vin=None):
   ███    █▄    ███    ██▄   ███    ███          ███   ███    ███   ███      ███     
   ███    ███   ███    ███   ███    ███    ▄█    ███   ███    ███   ███      ███     
   ██████████ ▄█████████▀    ███    █▀   ▄████████▀    ███    █▀    █▀      ▄████▀   
-  {Style.RESET_ALL}
+    {Style.RESET_ALL}
     """
-    clear_screen()
     print(header)
     if vin:
         print(f"{Fore.YELLOW}Connected Device VIN: {vin}{Style.RESET_ALL}")
@@ -240,42 +440,70 @@ def install_apps():
     try:
         script_dir = os.path.abspath(os.path.dirname(__file__))
         apps_config = {
-            "Waze.apk": "--user 0",
-            "SMS_Messenger.apk": "--user 0",
-            "Android_Settings.apk": "--user 0",
-            "com.lixiang.chat.store.apk": "",
-            "SwiftKey.apk": "", 
-            "YouTube_CarWizard.apk": "",
+            "Waze.apk": {"options": "--user 0", "display_name": "Waze Navigation"},
+            "SMS_Messenger.apk": {"options": "--user 0", "display_name": "SMS Messenger"},
+            "Android_Settings.apk": {"options": "--user 0", "display_name": "Android Settings"},
+            "com.lixiang.chat.store.apk": {"options": "", "display_name": "Li Chat Store"},
+            "SwiftKey.apk": {"options": "", "display_name": "SwiftKey Keyboard"},
+            "YouTube_CarWizard.apk": {"options": "", "display_name": "YouTube CarWizard"},
         }
         
-        missing_files = []
-        for app in apps_config.keys():
-            if not os.path.exists(os.path.join(script_dir, app)):
-                missing_files.append(app)
+        installation_results = {
+            "installed_apps": [],
+            "failed_apps": [],
+            "permissions": False,
+            "keyboard_config": False
+        }
         
-        if missing_files:
-            print(f"{Fore.RED}Missing required files:{Style.RESET_ALL}")
-            for file in missing_files:
-                print(f"- {file}")
-            return False
-
-        for app, options in apps_config.items():
+        total_apps = len(apps_config)
+        print(f"\n{Fore.CYAN}Starting installation process...{Style.RESET_ALL}\n")
+        
+        for index, (app, config) in enumerate(apps_config.items(), 1):
             app_path = os.path.join(script_dir, app)
-            print(f"{Fore.CYAN}Installing {app}...{Style.RESET_ALL}")
-            command = f"adb install {options} \"{app_path}\""
-            if not run_adb_command(command):
-                print(f"{Fore.RED}Failed to install {app}{Style.RESET_ALL}")
-                return False
-
-        # После установки всех приложений выдаем разрешения
-        print(f"{Fore.CYAN}All apps installed. Configuring permissions...{Style.RESET_ALL}")
-        give_permission()
+            progress = (index / total_apps) * 100
+            
+            print(f"{Fore.YELLOW}[{progress:3.0f}%] Installing {config['display_name']}...{Style.RESET_ALL}")
+            
+            if not os.path.exists(app_path):
+                print(f"{Fore.RED}✗ File not found: {app}{Style.RESET_ALL}")
+                installation_results["failed_apps"].append(config['display_name'])
+                continue
+                
+            command = f"adb install {config['options']} \"{app_path}\""
+            if run_adb_command(command):
+                print(f"{Fore.GREEN}✓ Successfully installed {config['display_name']}{Style.RESET_ALL}")
+                installation_results["installed_apps"].append(config['display_name'])
+            else:
+                print(f"{Fore.RED}✗ Failed to install {config['display_name']}{Style.RESET_ALL}")
+                installation_results["failed_apps"].append(config['display_name'])
         
-        print(f"{Fore.GREEN}All apps installed and configured successfully!{Style.RESET_ALL}")
+        print(f"\n{Fore.CYAN}Configuring permissions and keyboard...{Style.RESET_ALL}")
+        if give_permission():
+            installation_results["permissions"] = True
+            installation_results["keyboard_config"] = True
+        
+        # Вывод итогового отчета
+        print(f"\n{Fore.GREEN}=== Installation Report ==={Style.RESET_ALL}")
+        print(f"\n{Fore.CYAN}Successfully Installed ({len(installation_results['installed_apps'])}/{total_apps}):{Style.RESET_ALL}")
+        for app in installation_results["installed_apps"]:
+            print(f"{Fore.GREEN}✓ {app}{Style.RESET_ALL}")
+        
+        if installation_results["failed_apps"]:
+            print(f"\n{Fore.RED}Failed to Install:{Style.RESET_ALL}")
+            for app in installation_results["failed_apps"]:
+                print(f"{Fore.RED}✗ {app}{Style.RESET_ALL}")
+        
+        print(f"\n{Fore.CYAN}Configurations:{Style.RESET_ALL}")
+        print(f"{'✓' if installation_results['permissions'] else '✗'} Permissions: "
+              f"{Fore.GREEN if installation_results['permissions'] else Fore.RED}"
+              f"{'Configured' if installation_results['permissions'] else 'Failed'}{Style.RESET_ALL}")
+        print(f"{'✓' if installation_results['keyboard_config'] else '✗'} Keyboard: "
+              f"{Fore.GREEN if installation_results['keyboard_config'] else Fore.RED}"
+              f"{'Configured' if installation_results['keyboard_config'] else 'Failed'}{Style.RESET_ALL}")
+        
         return True
-        
     except Exception as e:
-        print(f"{Fore.RED}An unexpected error occurred during installation: {e}{Style.RESET_ALL}")
+        print(f"{Fore.RED}An unexpected error occurred: {e}{Style.RESET_ALL}")
         return False
     finally:
         pause_for_user()
@@ -362,65 +590,103 @@ def check_adb_version():
         print(f"{Fore.RED}Error checking ADB version: {e}{Style.RESET_ALL}")
         return False
 
-def menu():
-    while True:
-        try:
-            # Check device connection and get VIN info
-            connected, _ = check_adb_connection()
-            vin = get_device_vin() if connected else "No car connected"
+def check_for_updates():
+    """
+    Проверяет наличие обновлений и скачивает их если они доступны
+    """
+    try:
+        print(f"{Fore.CYAN}Checking for updates...{Style.RESET_ALL}")
+        response = requests.get(GITHUB_API_URL, timeout=5)
+        
+        # Если репозиторий или релизы не найдены, просто пропускаем проверку
+        if response.status_code == 404:
+            if DEV_MODE:  # Показываем сообщение только в режиме разработки
+                print(f"{Fore.YELLOW}No releases found in repository{Style.RESET_ALL}")
+            return False
             
-            display_header(vin)  # Display VIN in the header
+        if response.status_code != 200:
+            if DEV_MODE:
+                print(f"{Fore.YELLOW}Failed to check for updates. Status code: {response.status_code}{Style.RESET_ALL}")
+            return False
 
-            questions = [
-                inquirer.List(
-                    "action",
-                    message="Select an action using arrow keys:",
-                    choices=[
-                        "Delete all apps",
-                        "Delete selected apps",
-                        "Install Custom_Apps",
-                        "Install launcher",
-                        "Install reset app",
-                        "Install apps",
-                        "Help",
-                        "Exit",
-                    ],
-                )
-            ]
-            answers = inquirer.prompt(questions)
-            action = answers.get("action")
+        latest_release = response.json()
+        latest_version = latest_release['tag_name'].lstrip('v')
+        
+        if version.parse(latest_version) > version.parse(CURRENT_VERSION):
+            print(f"{Fore.GREEN}New version {latest_version} available! (Current: {CURRENT_VERSION}){Style.RESET_ALL}")
+            
+            # Получаем ссылку на .py файл из релиза
+            assets = latest_release['assets']
+            py_asset = next((asset for asset in assets if asset['name'] == 'adb_tool.py'), None)
+            
+            if py_asset:
+                download_url = py_asset['browser_download_url']
+                
+                # Спрашиваем пользователя об обновлении
+                if inquirer.confirm("Do you want to update now?", default=True):
+                    print(f"{Fore.CYAN}Downloading update...{Style.RESET_ALL}")
+                    
+                    # Скачиваем новую версию
+                    new_version = requests.get(download_url).text
+                    
+                    # Сохраняем текущий файл как бэкап
+                    current_file = os.path.abspath(__file__)
+                    backup_file = current_file + '.backup'
+                    os.rename(current_file, backup_file)
+                    
+                    # Записываем новую версию
+                    with open(current_file, 'w', encoding='utf-8') as f:
+                        f.write(new_version)
+                    
+                    print(f"{Fore.GREEN}Update successful! Please restart the program.{Style.RESET_ALL}")
+                    sys.exit(0)
+            else:
+                print(f"{Fore.YELLOW}Update file not found in release.{Style.RESET_ALL}")
+        else:
+            print(f"{Fore.GREEN}You are running the latest version ({CURRENT_VERSION}){Style.RESET_ALL}")
+            
+    except requests.exceptions.RequestException as e:
+        if DEV_MODE:
+            print(f"{Fore.YELLOW}Network error while checking updates: {e}{Style.RESET_ALL}")
+        return False
+    except Exception as e:
+        if DEV_MODE:
+            print(f"{Fore.RED}Error checking for updates: {e}{Style.RESET_ALL}")
+        return False
 
-            if action == "Exit":
-                print(f"{Fore.GREEN}Exiting the program...{Style.RESET_ALL}")
-                break
-
-            # Route user’s selection to the corresponding function
-            if action == "Delete all apps":
-                delete_all_apps()
-            elif action == "Delete selected apps":
-                list_and_delete_apps()
-            elif action == "Install Custom_Apps":
-                install_custom_apps()
-            elif action == "Install launcher":
-                install_launcher()
-            elif action == "Install reset app":
-                install_reset_app()
-            elif action == "Install apps":
-                install_apps()
-            elif action == "Help":
-                print(f"{Fore.YELLOW}@dexnot{Style.RESET_ALL}")
-                print("Version 0.0.3")
-                pause_for_user()
-        except KeyboardInterrupt:
-            # Gracefully handle CTRL+C
-            print(f"\n{Fore.RED}Interrupted by user. Exiting...{Style.RESET_ALL}")
-            break
-        except Exception as e:
-            print(f"{Fore.RED}An unexpected error occurred: {e}{Style.RESET_ALL}")
-            pause_for_user("Returning to the menu...")
+def check_and_install_requirements():
+    """
+    Проверяет и устанавливает необходимые зависимости
+    """
+    try:
+        from importlib.metadata import distribution, PackageNotFoundError
+        
+        required = {'requests', 'packaging', 'inquirer', 'colorama'}
+        missing = set()
+        
+        for package in required:
+            try:
+                distribution(package)
+            except PackageNotFoundError:
+                missing.add(package)
+        
+        if missing:
+            print(f"{Fore.YELLOW}Installing missing dependencies: {', '.join(missing)}{Style.RESET_ALL}")
+            subprocess.check_call([sys.executable, '-m', 'pip', 'install', *missing])
+            # ...остальной код...
+    except Exception as e:
+        clear_screen()
+        display_header()  # Показываем хедер после ошибки
+        print(f"{Fore.RED}Failed to install dependencies: {e}{Style.RESET_ALL}")
+        sys.exit(1)
 
 if __name__ == "__main__":
+    # Проверяем и устанавливаем зависимости перед всем остальным
+    check_and_install_requirements()
+    
     if not check_adb_version():
         print(f"{Fore.RED}Please install ADB before running this tool{Style.RESET_ALL}")
         sys.exit(1)
+    
+    check_for_updates()
     menu()
