@@ -10,8 +10,24 @@ import inquirer
 from colorama import Fore, Style
 from tqdm import tqdm
 
+import select
+if os.name == 'nt':
+    import msvcrt
+
+# Определяем базовые пути
+SCRIPT_DIR = os.path.abspath(os.path.dirname(__file__))
+CUSTOM_APPS_DIR = os.path.join(SCRIPT_DIR, "Custom_Apps")
+
+# Добавляем глобальную переменную для результатов установки
+installation_results = {
+    "installed_apps": [],
+    "failed_apps": [],
+    "permissions": False,
+    "keyboard_config": False
+}
+
 # Определяем режим разработки через переменную окружения
-DEV_MODE = True
+DEV_MODE = False
 
 CURRENT_VERSION = "0.1"
 GITHUB_REPO = "housemice/QS_Li"
@@ -125,19 +141,13 @@ if DEV_MODE:
         pause_for_user()
 
 def menu():
-    choices = [
-        f"{Fore.RED}🗑️  Remove all apps{Style.RESET_ALL}          - Uninstall all user applications",
-        f"{Fore.RED}📱  Remove selected apps{Style.RESET_ALL}     - Choose specific apps to uninstall",
-        f"{Fore.GREEN}📦  Install Custom Apps{Style.RESET_ALL}      - Install APKs from Custom_Apps folder",
-        f"{Fore.GREEN}🚀  Install launcher{Style.RESET_ALL}         - Install system launcher",
-        f"{Fore.GREEN}🔄  Install counter reset{Style.RESET_ALL}    - Install counter reset application",
-        f"{Fore.GREEN}⚙️   Install standard apps{Style.RESET_ALL}    - Install and configure all required apps",
-        f"{Fore.BLUE}💾  Download device files{Style.RESET_ALL}    - Save device files to Desktop",
-        f"{Fore.BLUE}ℹ️   Help{Style.RESET_ALL}                     - Show version and contact info",
-        f"{Fore.YELLOW}❌  Exit{Style.RESET_ALL}                     - Close the program"
-    ]
+    """
+    Displays and handles the main menu with auto-refresh
+    """
+    last_vin = None
+    last_status = None
     
-    # Создаем словарь для сопоставления отформатированных строк с действиями
+    # Определяем словарь соответствия пунктов меню и действий
     actions_map = {
         f"{Fore.RED}🗑️  Remove all apps{Style.RESET_ALL}          - Uninstall all user applications": "Delete all apps",
         f"{Fore.RED}📱  Remove selected apps{Style.RESET_ALL}     - Choose specific apps to uninstall": "Delete selected apps",
@@ -145,82 +155,100 @@ def menu():
         f"{Fore.GREEN}🚀  Install launcher{Style.RESET_ALL}         - Install system launcher": "Install launcher",
         f"{Fore.GREEN}🔄  Install counter reset{Style.RESET_ALL}    - Install counter reset application": "Install reset app",
         f"{Fore.GREEN}⚙️   Install standard apps{Style.RESET_ALL}    - Install and configure all required apps": "Install apps",
-        f"{Fore.BLUE}💾  Download device files{Style.RESET_ALL}    - Save device files to Desktop": "Download files",
+        f"{Fore.BLUE}💾  Download device files{Style.RESET_ALL}    - Save device APKs to Desktop": "Download files",
         f"{Fore.BLUE}ℹ️   Help{Style.RESET_ALL}                     - Show version and contact info": "Help",
         f"{Fore.YELLOW}❌  Exit{Style.RESET_ALL}                     - Close the program": "Exit"
     }
-    
+
+    # Добавляем пункт тестов если включен режим разработчика
     if DEV_MODE:
         test_choice = f"{Fore.MAGENTA}🧪  Run Tests{Style.RESET_ALL}               - Execute test scenarios"
-        choices.insert(0, test_choice)
         actions_map[test_choice] = "Run Tests"
-
-    last_vin = None
+    
     while True:
         try:
-            clear_screen()
-            
+            # Проверяем подключение
             connected, device_info = check_adb_connection()
             current_vin = get_device_vin() if connected else "No car connected"
+            current_status = f"{Fore.GREEN}Connected to: {device_info}{Style.RESET_ALL}" if connected else f"{Fore.RED}No device connected{Style.RESET_ALL}"
             
-            display_header(current_vin)
-            last_vin = current_vin
+            # Обновляем экран только если изменился статус или VIN
+            if current_vin != last_vin or current_status != last_status:
+                clear_screen()
+                display_header(current_vin)
+                print(f"\n{current_status}")
+                last_vin = current_vin
+                last_status = current_status
             
-            if connected:
-                status_line = f"{Fore.GREEN}Connected to: {device_info}{Style.RESET_ALL}"
-            else:
-                status_line = f"{Fore.RED}No device connected{Style.RESET_ALL}"
+            # Проверяем, есть ли ввод от пользователя
+            if msvcrt.kbhit() if os.name == 'nt' else select.select([sys.stdin], [], [], 0)[0]:
+                choices = [
+                    f"{Fore.RED}🗑️  Remove all apps{Style.RESET_ALL}          - Uninstall all user applications",
+                    f"{Fore.RED}📱  Remove selected apps{Style.RESET_ALL}     - Choose specific apps to uninstall",
+                    f"{Fore.GREEN}📦  Install Custom Apps{Style.RESET_ALL}      - Install APKs from Custom_Apps folder",
+                    f"{Fore.GREEN}🚀  Install launcher{Style.RESET_ALL}         - Install system launcher",
+                    f"{Fore.GREEN}🔄  Install counter reset{Style.RESET_ALL}    - Install counter reset application",
+                    f"{Fore.GREEN}⚙️   Install standard apps{Style.RESET_ALL}    - Install and configure all required apps",
+                    f"{Fore.BLUE}💾  Download device files{Style.RESET_ALL}    - Save device APKs to Desktop",
+                    f"{Fore.BLUE}ℹ️   Help{Style.RESET_ALL}                     - Show version and contact info",
+                    f"{Fore.YELLOW}❌  Exit{Style.RESET_ALL}                     - Close the program"
+                ]
+                
+                if DEV_MODE:
+                    choices.insert(0, f"{Fore.MAGENTA}🧪  Run Tests{Style.RESET_ALL}               - Execute test scenarios")
+                
+                questions = [
+                    inquirer.List(
+                        "action",
+                        message="Select an action using arrow keys:",
+                        choices=choices,
+                    )
+                ]
+                
+                answers = inquirer.prompt(questions)
+                if not answers:  # Если пользователь нажал Ctrl+C
+                    continue
+                    
+                action = actions_map.get(answers.get("action"))
+                
+                if action == "Exit":
+                    print(f"{Fore.GREEN}Exiting the program...{Style.RESET_ALL}")
+                    break
+                
+                clear_screen()
+                display_header(current_vin)
+                
+                # Выполняем выбранное действие
+                if action == "Delete all apps":
+                    delete_all_apps()
+                elif action == "Delete selected apps":
+                    list_and_delete_apps()
+                elif action == "Install Custom_Apps":
+                    install_custom_apps()
+                elif action == "Install launcher":
+                    install_launcher()
+                elif action == "Install reset app":
+                    install_reset_app()
+                elif action == "Install apps":
+                    install_apps()
+                elif action == "Download files":
+                    download_device_files()
+                elif action == "Help":
+                    print(f"{Fore.YELLOW}@dexnot{Style.RESET_ALL}")
+                    print("Version 0.2")
+                    pause_for_user()
+                elif action == "Run Tests" and DEV_MODE:
+                    run_tests()
             
-            print(f"\n{status_line}")
-            
-            questions = [
-                inquirer.List(
-                    "action",
-                    message="Select an action using arrow keys:",
-                    choices=choices,
-                )
-            ]
-            answers = inquirer.prompt(questions)
-            selected = answers.get("action")
-            action = actions_map.get(selected)  # Получаем соответствующее действие
-            
-            if action == "Exit":
-                print(f"{Fore.GREEN}Exiting the program...{Style.RESET_ALL}")
-                break
-            
-            clear_screen()
-            display_header(current_vin)
-            
-            # Route user's selection to the corresponding function
-            if action == "Delete all apps":
-                delete_all_apps()
-            elif action == "Delete selected apps":
-                list_and_delete_apps()
-            elif action == "Install Custom_Apps":
-                install_custom_apps()
-            elif action == "Install launcher":
-                install_launcher()
-            elif action == "Install reset app":
-                install_reset_app()
-            elif action == "Install apps":
-                install_apps()
-            elif action == "Download files":
-                download_device_files()
-            elif action == "Help":
-                print(f"{Fore.YELLOW}@dexnot{Style.RESET_ALL}")
-                print("Version 0.1")
-                pause_for_user()
-            elif action == "Run Tests":
-                run_tests()
+            # Пауза перед следующей проверкой
+            time.sleep(1)
                 
         except KeyboardInterrupt:
             print(f"\n{Fore.RED}Interrupted by user. Exiting...{Style.RESET_ALL}")
             break
         except Exception as e:
-            clear_screen()
-            display_header(current_vin)
             print(f"{Fore.RED}An unexpected error occurred: {e}{Style.RESET_ALL}")
-            pause_for_user("Returning to the menu...")
+            pause_for_user("Press Enter to return to the menu...")
 
 def get_user_count():
     try:
@@ -291,36 +319,31 @@ def run_adb_command(command):
 
 
 def check_adb_connection():
+    """
+    Checks if a device is connected via ADB
+    """
     try:
         result = subprocess.run(
-            "adb devices -l",
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            shell=True,
+            "adb devices", 
+            stdout=subprocess.PIPE, 
+            stderr=subprocess.PIPE, 
+            shell=True, 
             text=True
         )
-        lines = result.stdout.splitlines()
-        # Filter lines that indicate an actual device.
-        devices = [
-            line for line in lines
-            if "device" in line and not line.startswith("List")
-        ]
-
-        if devices:
-            # Extract serial number and model if available.
-            device_info = devices[0].split()
-            serial_number = device_info[0]
-            model = None
-            for part in device_info:
-                if "model:" in part:
-                    model = part.split(":")[1]
-                    break
-            return True, model or serial_number
-        else:
-            print(f"{Fore.RED}No device connected via ADB.{Style.RESET_ALL}")
+        
+        if result.returncode != 0:
             return False, None
+            
+        devices = [line.split('\t')[0] for line in result.stdout.splitlines()[1:] if line.strip() and 'device' in line]
+        
+        if not devices:
+            return False, None
+            
+        return True, devices[0]
+        
     except Exception as e:
-        print(f"{Fore.RED}ADB connection error: {e}{Style.RESET_ALL}")
+        if DEV_MODE:
+            print(f"{Fore.RED}Error checking ADB connection: {e}{Style.RESET_ALL}")
         return False, None
 
 
@@ -338,7 +361,10 @@ def display_header(vin=None):
     """
     Displays logo and device information
     """
-    header = f"""{Style.RESET_ALL}
+    header = f"""
+    {Fore.CYAN}╔══════════════════════════════════════════════════════════════════════════════╗
+    ║                                 Made by @dexnot                              ║
+    ╚══════════════════════════════════════════════════════════════════════════════╝{Style.RESET_ALL}
     {Fore.GREEN}
   ▄████████ ▀█████████▄     ▄████████    ▄████████    ▄█    █▄     ▄█      ███     
   ███    ███   ███    ███   ███    ███   ███    ███   ███    ███   ███  ▀█████████▄ 
@@ -362,29 +388,84 @@ def display_header(vin=None):
 
 @requires_adb_connection
 def install_custom_apps():
-    script_dir = os.path.abspath(os.path.dirname(__file__))
-    custom_apps_dir = os.path.join(script_dir, "Custom_Apps")
-    
-    if not os.path.exists(custom_apps_dir):
-        print(f"{Fore.RED}Custom_Apps folder not found!{Style.RESET_ALL}")
+    """
+    Installs APK files from Custom_Apps folder and standard apps directory
+    """
+    try:
+        script_dir = os.path.abspath(os.path.dirname(__file__))
+        custom_apps_dir = os.path.join(script_dir, "Custom_Apps")
+        
+        if not os.path.exists(custom_apps_dir):
+            print(f"{Fore.RED}Custom_Apps folder not found!{Style.RESET_ALL}")
+            pause_for_user()
+            return
+
+        # Получаем список APK из Custom_Apps
+        custom_apk_files = [f for f in os.listdir(custom_apps_dir) if f.endswith(".apk")]
+        # Получаем список APK из основной директории
+        main_apk_files = [f for f in os.listdir(script_dir) if f.endswith(".apk")]
+
+        if not custom_apk_files and not main_apk_files:
+            print(f"{Fore.RED}No .apk files found in Custom_Apps or main directory.{Style.RESET_ALL}")
+            pause_for_user()
+            return
+
+        print(f"{Fore.GREEN}Found {len(custom_apk_files)} APK(s) in Custom_Apps and {len(main_apk_files)} APK(s) in main directory.{Style.RESET_ALL}")
+        
+        # Создаем список всех доступных APK с путями
+        all_apks = []
+        for apk in custom_apk_files:
+            all_apks.append({
+                'name': apk,
+                'path': os.path.join(custom_apps_dir, apk),
+                'source': 'Custom_Apps'
+            })
+        for apk in main_apk_files:
+            all_apks.append({
+                'name': apk,
+                'path': os.path.join(script_dir, apk),
+                'source': 'Standard'
+            })
+
+        # Даем пользователю выбрать, какие APK установить
+        choices = [
+            f"{apk['name']} ({apk['source']})" for apk in all_apks
+        ]
+        
+        questions = [
+            inquirer.Checkbox(
+                'selected_apps',
+                message="Select apps to install (use Space to select, Enter to confirm):",
+                choices=choices,
+            ),
+        ]
+        
+        answers = inquirer.prompt(questions)
+        if not answers or not answers['selected_apps']:
+            print(f"{Fore.YELLOW}No apps selected.{Style.RESET_ALL}")
+            return
+
+        selected_indices = [choices.index(app) for app in answers['selected_apps']]
+        selected_apks = [all_apks[i] for i in selected_indices]
+
+        with tqdm(total=len(selected_apks), desc="Overall progress", 
+                 bar_format='{desc}: {percentage:3.0f}%|{bar}| {n_fmt}/{total_fmt}') as pbar:
+            for apk in selected_apks:
+                pbar.set_description(f"Installing {apk['name'][:30]}")
+                command = f"adb install \"{apk['path']}\""
+                result = subprocess.run(command, shell=True, stdout=subprocess.PIPE, 
+                                     stderr=subprocess.PIPE, text=True)
+                
+                if result.returncode == 0:
+                    print(f"\r{Fore.GREEN}✓ Installed {apk['name']}{' ' * 50}{Style.RESET_ALL}")
+                else:
+                    print(f"\r{Fore.RED}✗ Failed to install {apk['name']}: {result.stderr.strip()}{' ' * 50}{Style.RESET_ALL}")
+                pbar.update(1)
+
+    except Exception as e:
+        print(f"{Fore.RED}An error occurred: {e}{Style.RESET_ALL}")
+    finally:
         pause_for_user()
-        return
-
-    apk_files = [f for f in os.listdir(custom_apps_dir) if f.endswith(".apk")]
-    if not apk_files:
-        print(f"{Fore.RED}No .apk files found in Custom_Apps.{Style.RESET_ALL}")
-        pause_for_user()
-        return
-
-    print(f"{Fore.GREEN}Found {len(apk_files)} APK(s) in Custom_Apps.{Style.RESET_ALL}")
-    
-    with tqdm(total=len(apk_files), desc="Installing custom apps", bar_format='{l_bar}{bar}| {n_fmt}/{total_fmt}') as pbar:
-        for app in apk_files:
-            app_path = os.path.join(custom_apps_dir, app)
-            print(f"Installing {app}...")
-            run_adb_command(f"adb install \"{app_path}\"")
-            pbar.update(1)
-
 
 @requires_adb_connection
 def list_and_delete_apps():
@@ -432,10 +513,16 @@ def delete_all_apps():
     result = subprocess.run("adb shell pm list packages -3", stdout=subprocess.PIPE, shell=True, text=True)
     packages = [line.split(":")[1].strip() for line in result.stdout.splitlines()]
 
-    with tqdm(total=len(packages), desc="Deleting apps", bar_format='{l_bar}{bar}| {n_fmt}/{total_fmt}') as pbar:
+    with tqdm(total=len(packages), desc="Total progress", 
+             bar_format='{l_bar}{bar}| {n_fmt}/{total_fmt}') as pbar:
         for package in packages:
-            print(f"Deleting {package}...")
-            run_adb_command(f"adb uninstall {package}")
+            pbar.set_description(f"Removing {package[:30]}...")
+            command = f"adb uninstall {package}"
+            result = run_adb_command(command)
+            if result:
+                print(f"\r{Fore.GREEN}✓ Removed {package}{' ' * 50}{Style.RESET_ALL}")
+            else:
+                print(f"\r{Fore.RED}✗ Failed to remove {package}{' ' * 50}{Style.RESET_ALL}")
             pbar.update(1)
 
 @requires_adb_connection
@@ -443,7 +530,7 @@ def install_launcher():
     print("Installing launcher(s)...")
     user_count = get_user_count()
 
-    if user_count == 2:
+    if user_count == 2 or user_count == 1:
         with tqdm(total=1, desc="Installing launcher", bar_format='{l_bar}{bar}| {n_fmt}/{total_fmt}') as pbar:
             run_adb_command("adb install --user 0 Launcher.apk")
             pbar.update(1)
@@ -469,16 +556,25 @@ def install_apps():
             if not inquirer.confirm("Low storage space detected. Continue anyway?", default=False):
                 return False
 
-        script_dir = os.path.abspath(os.path.dirname(__file__))
-        apps_config = {
-            "Waze.apk": {"options": "--user 0", "display_name": "Waze Navigation"},
-            "SMS_Messenger.apk": {"options": "--user 0", "display_name": "SMS Messenger"},
-            "Android_Settings.apk": {"options": "--user 0", "display_name": "Android Settings"},
-            "com.lixiang.chat.store.apk": {"options": "", "display_name": "Li Chat Store"},
-            "SwiftKey.apk": {"options": "", "display_name": "SwiftKey Keyboard"},
-            "YouTube_CarWizard.apk": {"options": "", "display_name": "YouTube CarWizard"},
-        }
+        # Загружаем конфигурацию приложений из config.py
+        from config import CONFIG
+        apps_config = CONFIG.get("apps", {})
         
+        # Проверяем наличие всех APK файлов перед установкой
+        missing_files = []
+        for app_name in apps_config:
+            app_path = os.path.join(SCRIPT_DIR, app_name)
+            if not os.path.exists(app_path):
+                missing_files.append(app_name)
+        
+        if missing_files:
+            print(f"{Fore.RED}Error: Missing APK files:{Style.RESET_ALL}")
+            for file in missing_files:
+                print(f"{Fore.RED}✗ {file}{Style.RESET_ALL}")
+            print(f"\n{Fore.YELLOW}Please ensure all APK files are in the same directory as the script.{Style.RESET_ALL}")
+            pause_for_user()
+            return False
+
         installation_results = {
             "installed_apps": [],
             "failed_apps": [],
@@ -487,73 +583,95 @@ def install_apps():
         }
         
         total_apps = len(apps_config)
-        print(f"\n{Fore.CYAN}Starting installation process...{Style.RESET_ALL}\n")
+        print(f"\n{Fore.CYAN}Starting installation process...{Style.RESET_ALL}")
         
-        with tqdm(total=len(apps_config), desc="Overall progress", bar_format='{l_bar}{bar}| {n_fmt}/{total_fmt}') as pbar:
-            for app, config in apps_config.items():
+        with tqdm(total=total_apps, desc="Overall progress", 
+                 bar_format='{desc}: {percentage:3.0f}%|{bar}| {n_fmt}/{total_fmt}') as pbar:
+            for app_name, config in apps_config.items():
+                # Обновляем описание текущей операции
+                pbar.set_description(f"Installing {config['display_name'][:30]}")
+                
+                app_path = os.path.join(SCRIPT_DIR, app_name)
+                if not os.path.exists(app_path):
+                    print(f"\r{Fore.RED}✗ File not found: {app_name}{' ' * 50}{Style.RESET_ALL}")
+                    installation_results["failed_apps"].append(config['display_name'])
+                    pbar.update(1)
+                    continue
+
                 retry_count = 3
-                while retry_count > 0:
-                    if install_single_app(app, config):
-                        break
-                    retry_count -= 1
-                    if retry_count > 0:
-                        print(f"{Fore.YELLOW}Retrying installation...{Style.RESET_ALL}")
-                        time.sleep(2)
+                success = False
+                
+                while retry_count > 0 and not success:
+                    command = f"adb install {config['options']} \"{app_path}\""
+                    result = subprocess.run(command, shell=True, stdout=subprocess.PIPE, 
+                                         stderr=subprocess.PIPE, text=True)
+                    
+                    if result.returncode == 0:
+                        print(f"\r{Fore.GREEN}✓ Installed {config['display_name']}{' ' * 50}{Style.RESET_ALL}")
+                        installation_results["installed_apps"].append(config['display_name'])
+                        success = True
+                    else:
+                        retry_count -= 1
+                        if retry_count > 0:
+                            print(f"\r{Fore.YELLOW}⚠ Retrying {config['display_name']}...{' ' * 50}{Style.RESET_ALL}")
+                            time.sleep(2)
+                        else:
+                            print(f"\r{Fore.RED}✗ Failed to install {config['display_name']}{' ' * 50}{Style.RESET_ALL}")
+                            installation_results["failed_apps"].append(config['display_name'])
+                
                 pbar.update(1)
-        
+
+        # Настройка разрешений и клавиатуры
         print(f"\n{Fore.CYAN}Configuring permissions and keyboard...{Style.RESET_ALL}")
-        if give_permission():
-            installation_results["permissions"] = True
-            installation_results["keyboard_config"] = True
-        
-        # Вывод итогового отчета
+        installation_results["permissions"] = give_permission()
+        installation_results["keyboard_config"] = configure_keyboard()
+
+        # Выводим итоговый отчет
         print_installation_report(installation_results, total_apps)
-        
         return True
+
     except Exception as e:
-        print(f"{Fore.RED}An unexpected error occurred: {e}{Style.RESET_ALL}")
+        print(f"\n{Fore.RED}An error occurred during installation: {e}{Style.RESET_ALL}")
         return False
     finally:
         pause_for_user()
-        
-def install_single_app(app, config):
-    app_path = os.path.join(script_dir, app)
-    print(f"{Fore.YELLOW}Installing {config['display_name']}...{Style.RESET_ALL}")
-    
-    if not os.path.exists(app_path):
-        print(f"{Fore.RED}✗ File not found: {app}{Style.RESET_ALL}")
-        installation_results["failed_apps"].append(config['display_name'])
-        return False
-    
-    command = f"adb install {config['options']} \"{app_path}\""
-    if run_adb_command(command):
-        print(f"{Fore.GREEN}✓ Successfully installed {config['display_name']}{Style.RESET_ALL}")
-        installation_results["installed_apps"].append(config['display_name'])
-        return True
-    else:
-        print(f"{Fore.RED}✗ Failed to install {config['display_name']}{Style.RESET_ALL}")
-        installation_results["failed_apps"].append(config['display_name'])
-        return False
 
 def give_permission():
     try:
         user_count = get_user_count()
         user_indexes = [0] if user_count == 1 else [0, 21473, 6174]
 
-        with tqdm(total=len(user_indexes)*3, desc="Configuring permissions", bar_format='{l_bar}{bar}| {n_fmt}/{total_fmt}') as pbar:
-            # Package installation permissions
+        total_steps = len(user_indexes) * 3
+        with tqdm(total=total_steps, desc="Configuring permissions", 
+                 bar_format='{l_bar}{bar}| {n_fmt}/{total_fmt}') as pbar:
+            
+            # Разрешения для установки пакетов
             for user in user_indexes:
-                run_adb_command(f'adb shell "appops set --user {user} com.lixiang.chat.store REQUEST_INSTALL_PACKAGES allow"')
+                pbar.set_description(f"Setting permissions for user {user}...")
+                command = f'adb shell "appops set --user {user} com.lixiang.chat.store REQUEST_INSTALL_PACKAGES allow"'
+                result = run_adb_command(command)
+                if result:
+                    print(f"\r{Fore.GREEN}✓ Permissions set for user {user}{' ' * 50}{Style.RESET_ALL}")
+                else:
+                    print(f"\r{Fore.RED}✗ Failed to set permissions for user {user}{' ' * 50}{Style.RESET_ALL}")
                 pbar.update(1)
 
-            time.sleep(2)  # System pause
+            time.sleep(2)  # Пауза для системы
 
-            # Keyboard configuration
+            # Настройка клавиатуры
             for user in user_indexes:
-                run_adb_command(f"adb shell ime enable --user {user} com.touchtype.swiftkey/com.touchtype.KeyboardService")
-                pbar.update(1)
-                run_adb_command(f"adb shell ime set --user {user} com.touchtype.swiftkey/com.touchtype.KeyboardService")
-                pbar.update(1)
+                pbar.set_description(f"Configuring keyboard for user {user}...")
+                commands = [
+                    f"adb shell ime enable --user {user} com.touchtype.swiftkey/com.touchtype.KeyboardService",
+                    f"adb shell ime set --user {user} com.touchtype.swiftkey/com.touchtype.KeyboardService"
+                ]
+                for cmd in commands:
+                    result = run_adb_command(cmd)
+                    if result:
+                        print(f"\r{Fore.GREEN}✓ Keyboard configured for user {user}{' ' * 50}{Style.RESET_ALL}")
+                    else:
+                        print(f"\r{Fore.RED}✗ Failed to configure keyboard for user {user}{' ' * 50}{Style.RESET_ALL}")
+                    pbar.update(1)
     except Exception as e:
         print(f"{Fore.RED}An error occurred while giving permission: {e}{Style.RESET_ALL}")
         
@@ -566,91 +684,129 @@ def get_device_vin():
         if not connected:
             return "No device connected"
             
-        # Try different commands to get VIN
-        commands = [
-            "adb shell getprop persist.sys.vin",
-            "adb shell getprop ro.vin",
-            "adb shell settings get system vehicle_id"
-        ]
+        # Используем правильную команду для получения VIN
+        command = "adb shell getprop persist.sys.vehicle.vin"
+        result = subprocess.run(
+            command,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            shell=True,
+            text=True,
+            timeout=5
+        )
         
-        for cmd in commands:
-            result = subprocess.run(
-                cmd,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                shell=True,
-                text=True,
-                timeout=5
-            )
-            if result.returncode == 0 and result.stdout.strip() and result.stdout.strip() != "null":
-                return result.stdout.strip()
+        if result.returncode == 0 and result.stdout.strip() and result.stdout.strip() != "null":
+            return result.stdout.strip()
+        
+        # Если VIN не найден, используем ID устройства
+        device_id_cmd = "adb shell settings get secure android_id"
+        result = subprocess.run(
+            device_id_cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            shell=True,
+            text=True
+        )
+        if result.returncode == 0 and result.stdout.strip():
+            return f"DEVICE_{result.stdout.strip()}"
                 
-        return "VIN not available"
+        return "UNKNOWN_DEVICE"
     except Exception as e:
         print(f"{Fore.RED}Failed to retrieve VIN: {e}{Style.RESET_ALL}")
-        return "Error getting VIN"
+        return "UNKNOWN_DEVICE"
 
 def download_device_files():
     """
-    Downloads device files to a folder named by VIN on Desktop
+    Downloads all installed APK files (both system and non-system) to a VIN-named folder
     """
     try:
-        # Get VIN and create folder name
         vin = get_device_vin()
-        if vin in ["No device connected", "VIN not available", "Error getting VIN"]:
-            print(f"{Fore.RED}Cannot download files: Valid VIN not available{Style.RESET_ALL}")
+        if vin in ["No device connected"]:
+            print(f"{Fore.RED}Cannot download files: No device connected{Style.RESET_ALL}")
             return False
 
-        # Create folder on desktop
         desktop = os.path.join(os.path.expanduser("~"), "Desktop")
-        folder_name = f"Device_Files_{vin}"
+        folder_name = f"Device_APKs_{vin}"
         folder_path = os.path.join(desktop, folder_name)
         
-        if not os.path.exists(folder_path):
-            os.makedirs(folder_path)
+        system_path = os.path.join(folder_path, "system_apps")
+        user_path = os.path.join(folder_path, "user_apps")
+        for path in [system_path, user_path]:
+            if not os.path.exists(path):
+                os.makedirs(path)
 
-        print(f"{Fore.CYAN}Downloading device files to: {folder_path}{Style.RESET_ALL}")
+        print(f"{Fore.CYAN}Downloading APK files to: {folder_path}{Style.RESET_ALL}")
+        print(f"{Fore.CYAN}Getting list of installed packages...{Style.RESET_ALL}")
+        
+        # Get user installed packages
+        result = subprocess.run("adb shell pm list packages -3 -f", 
+                              stdout=subprocess.PIPE, shell=True, text=True)
+        user_packages = result.stdout.splitlines()
+        
+        # Get system packages
+        result = subprocess.run("adb shell pm list packages -s -f", 
+                              stdout=subprocess.PIPE, shell=True, text=True)
+        system_packages = result.stdout.splitlines()
 
-        # List of paths to download
-        paths_to_download = [
-            "/sdcard/",
-            "/storage/emulated/0/Download/",
-            "/storage/emulated/0/DCIM/",
-            "/storage/emulated/0/Pictures/"
-        ]
-
-        with tqdm(total=len(paths_to_download), desc="Downloading files", bar_format='{l_bar}{bar}| {n_fmt}/{total_fmt}') as pbar:
-            for path in paths_to_download:
+        total_packages = len(user_packages) + len(system_packages)
+        
+        with tqdm(total=total_packages, desc="Total progress", 
+                 bar_format='{l_bar}{bar}| {n_fmt}/{total_fmt}') as main_pbar:
+            
+            # Download user apps
+            print(f"\n{Fore.CYAN}Downloading user apps:{Style.RESET_ALL}")
+            for package in user_packages:
                 try:
-                    # Create corresponding folder structure
-                    local_folder = os.path.join(folder_path, path.strip("/").replace("/", "_"))
-                    if not os.path.exists(local_folder):
-                        os.makedirs(local_folder)
-
-                    # Pull files from device
-                    command = f'adb pull "{path}" "{local_folder}"'
-                    result = subprocess.run(
-                        command,
-                        stdout=subprocess.PIPE,
-                        stderr=subprocess.PIPE,
-                        shell=True,
-                        text=True
-                    )
+                    path = package.split("package:")[1].split("=")[0]
+                    pkg_name = path.split("/")[-1].replace(".apk", "")
+                    output_path = os.path.join(user_path, f"{pkg_name}.apk")
+                    
+                    # Обновляем описание прогресс-бара для текущего пакета
+                    main_pbar.set_description(f"Downloading {pkg_name[:30]}...")
+                    
+                    command = f'adb pull "{path}" "{output_path}"'
+                    result = subprocess.run(command, stdout=subprocess.PIPE, 
+                                         stderr=subprocess.PIPE, shell=True, text=True)
+                    
+                    # Используем \r для обновления той же строки
+                    if result.returncode == 0:
+                        print(f"\r{Fore.GREEN}✓ {pkg_name}{' ' * 50}{Style.RESET_ALL}")
+                    else:
+                        print(f"\r{Fore.RED}✗ {pkg_name}: {result.stderr.strip()}{' ' * 50}{Style.RESET_ALL}")
+                except Exception as e:
+                    print(f"\r{Fore.RED}✗ Error with {pkg_name}: {str(e)[:50]}{' ' * 20}{Style.RESET_ALL}")
+                finally:
+                    main_pbar.update(1)
+            
+            # Download system apps
+            print(f"\n{Fore.CYAN}Downloading system apps:{Style.RESET_ALL}")
+            for package in system_packages:
+                try:
+                    path = package.split("package:")[1].split("=")[0]
+                    pkg_name = path.split("/")[-1].replace(".apk", "")
+                    output_path = os.path.join(system_path, f"{pkg_name}.apk")
+                    
+                    # Обновляем описание прогресс-бара для текущего пакета
+                    main_pbar.set_description(f"Downloading {pkg_name[:30]}...")
+                    
+                    command = f'adb pull "{path}" "{output_path}"'
+                    result = subprocess.run(command, stdout=subprocess.PIPE, 
+                                         stderr=subprocess.PIPE, shell=True, text=True)
                     
                     if result.returncode == 0:
-                        print(f"{Fore.GREEN}✓ Downloaded files from {path}{Style.RESET_ALL}")
+                        print(f"\r{Fore.GREEN}✓ {pkg_name}{' ' * 50}{Style.RESET_ALL}")
                     else:
-                        print(f"{Fore.YELLOW}⚠ Failed to download from {path}: {result.stderr}{Style.RESET_ALL}")
+                        print(f"\r{Fore.RED}✗ {pkg_name}: {result.stderr.strip()}{' ' * 50}{Style.RESET_ALL}")
                 except Exception as e:
-                    print(f"{Fore.RED}Error downloading from {path}: {e}{Style.RESET_ALL}")
+                    print(f"\r{Fore.RED}✗ Error with {pkg_name}: {str(e)[:50]}{' ' * 20}{Style.RESET_ALL}")
                 finally:
-                    pbar.update(1)
+                    main_pbar.update(1)
 
-        print(f"{Fore.GREEN}Files downloaded to: {folder_path}{Style.RESET_ALL}")
+        print(f"\n{Fore.GREEN}APKs downloaded to: {folder_path}{Style.RESET_ALL}")
         return True
 
     except Exception as e:
-        print(f"{Fore.RED}Failed to download files: {e}{Style.RESET_ALL}")
+        print(f"{Fore.RED}Failed to download APKs: {e}{Style.RESET_ALL}")
         return False
     finally:
         pause_for_user()
@@ -677,15 +833,15 @@ def check_adb_version():
 
 def check_for_updates():
     """
-    Проверяет наличие обновлений и скачивает их если они доступны
+    Checks for updates and downloads them if available
     """
     try:
         print(f"{Fore.CYAN}Checking for updates...{Style.RESET_ALL}")
         response = requests.get(GITHUB_API_URL, timeout=5)
         
-        # Если репозиторий или релизы не найдены, просто пропускаем проверку
+        # If repository or releases not found, skip update check
         if response.status_code == 404:
-            if DEV_MODE:  # Показываем сообщение только в режиме разработки
+            if DEV_MODE:  # Show message only in dev mode
                 print(f"{Fore.YELLOW}No releases found in repository{Style.RESET_ALL}")
             return False
             
@@ -700,26 +856,26 @@ def check_for_updates():
         if version.parse(latest_version) > version.parse(CURRENT_VERSION):
             print(f"{Fore.GREEN}New version {latest_version} available! (Current: {CURRENT_VERSION}){Style.RESET_ALL}")
             
-            # Получаем ссылку на .py файл из релиза
+            # Get .py file link from release
             assets = latest_release['assets']
             py_asset = next((asset for asset in assets if asset['name'] == 'adb_tool.py'), None)
             
             if py_asset:
                 download_url = py_asset['browser_download_url']
                 
-                # Спрашиваем пользователя об обновлении
+                # Ask user about update
                 if inquirer.confirm("Do you want to update now?", default=True):
                     print(f"{Fore.CYAN}Downloading update...{Style.RESET_ALL}")
                     
-                    # Скачиваем новую версию
+                    # Download new version
                     new_version = requests.get(download_url).text
                     
-                    # Сохраняем текущий файл как бэкап
+                    # Save current file as backup
                     current_file = os.path.abspath(__file__)
                     backup_file = current_file + '.backup'
                     os.rename(current_file, backup_file)
                     
-                    # Записываем новую версию
+                    # Write new version
                     with open(current_file, 'w', encoding='utf-8') as f:
                         f.write(new_version)
                     
@@ -730,10 +886,6 @@ def check_for_updates():
         else:
             print(f"{Fore.GREEN}You are running the latest version ({CURRENT_VERSION}){Style.RESET_ALL}")
             
-    except requests.exceptions.RequestException as e:
-        if DEV_MODE:
-            print(f"{Fore.YELLOW}Network error while checking updates: {e}{Style.RESET_ALL}")
-        return False
     except Exception as e:
         if DEV_MODE:
             print(f"{Fore.RED}Error checking for updates: {e}{Style.RESET_ALL}")
