@@ -5,6 +5,7 @@ import subprocess
 import requests
 import json
 from packaging import version
+import shutil
 
 import inquirer
 from colorama import Fore, Style
@@ -29,7 +30,7 @@ installation_results = {
 # Определяем режим разработки через переменную окружения
 DEV_MODE = False
 
-CURRENT_VERSION = "0.1"
+CURRENT_VERSION = "0.2"
 GITHUB_REPO = "housemice/QS_Li"
 GITHUB_API_URL = f"https://api.github.com/repos/{GITHUB_REPO}/releases/latest"
 
@@ -144,6 +145,10 @@ def menu():
     """
     Displays and handles the main menu with auto-refresh
     """
+    # Проверяем обновления при запуске
+    if check_for_updates():
+        time.sleep(2)  # Даем время прочитать сообщение об обновлении
+    
     last_vin = None
     last_status = None
     
@@ -833,21 +838,21 @@ def check_adb_version():
 
 def check_for_updates():
     """
-    Checks for updates and downloads them if available
+    Checks for updates by comparing versions with GitHub releases
     """
     try:
         print(f"{Fore.CYAN}Checking for updates...{Style.RESET_ALL}")
-        response = requests.get(GITHUB_API_URL, timeout=5)
         
-        # If repository or releases not found, skip update check
+        # Получаем информацию о последнем релизе
+        headers = {'Accept': 'application/vnd.github.v3+json'}
+        response = requests.get(GITHUB_API_URL, headers=headers, timeout=5)
+        
         if response.status_code == 404:
-            if DEV_MODE:  # Show message only in dev mode
-                print(f"{Fore.YELLOW}No releases found in repository{Style.RESET_ALL}")
+            print(f"{Fore.YELLOW}No releases found in repository{Style.RESET_ALL}")
             return False
             
         if response.status_code != 200:
-            if DEV_MODE:
-                print(f"{Fore.YELLOW}Failed to check for updates. Status code: {response.status_code}{Style.RESET_ALL}")
+            print(f"{Fore.YELLOW}Failed to check for updates. Status code: {response.status_code}{Style.RESET_ALL}")
             return False
 
         latest_release = response.json()
@@ -856,39 +861,38 @@ def check_for_updates():
         if version.parse(latest_version) > version.parse(CURRENT_VERSION):
             print(f"{Fore.GREEN}New version {latest_version} available! (Current: {CURRENT_VERSION}){Style.RESET_ALL}")
             
-            # Get .py file link from release
-            assets = latest_release['assets']
-            py_asset = next((asset for asset in assets if asset['name'] == 'adb_tool.py'), None)
+            # Ищем файл скрипта в релизе
+            for asset in latest_release['assets']:
+                if asset['name'] == 'adb_tool.py':
+                    if inquirer.confirm("Do you want to update now?", default=True):
+                        print(f"{Fore.CYAN}Downloading update...{Style.RESET_ALL}")
+                        
+                        # Скачиваем новую версию
+                        update_response = requests.get(asset['browser_download_url'])
+                        if update_response.status_code == 200:
+                            # Создаем резервную копию
+                            current_file = os.path.abspath(__file__)
+                            backup_file = current_file + '.backup'
+                            shutil.copy2(current_file, backup_file)
+                            
+                            # Записываем новую версию
+                            with open(current_file, 'wb') as f:
+                                f.write(update_response.content)
+                            
+                            print(f"{Fore.GREEN}Update successful! Please restart the program.{Style.RESET_ALL}")
+                            return True
+                        else:
+                            print(f"{Fore.RED}Failed to download update.{Style.RESET_ALL}")
+                            return False
             
-            if py_asset:
-                download_url = py_asset['browser_download_url']
-                
-                # Ask user about update
-                if inquirer.confirm("Do you want to update now?", default=True):
-                    print(f"{Fore.CYAN}Downloading update...{Style.RESET_ALL}")
-                    
-                    # Download new version
-                    new_version = requests.get(download_url).text
-                    
-                    # Save current file as backup
-                    current_file = os.path.abspath(__file__)
-                    backup_file = current_file + '.backup'
-                    os.rename(current_file, backup_file)
-                    
-                    # Write new version
-                    with open(current_file, 'w', encoding='utf-8') as f:
-                        f.write(new_version)
-                    
-                    print(f"{Fore.GREEN}Update successful! Please restart the program.{Style.RESET_ALL}")
-                    sys.exit(0)
-            else:
-                print(f"{Fore.YELLOW}Update file not found in release.{Style.RESET_ALL}")
+            print(f"{Fore.YELLOW}Update file not found in release.{Style.RESET_ALL}")
+            return False
         else:
             print(f"{Fore.GREEN}You are running the latest version ({CURRENT_VERSION}){Style.RESET_ALL}")
+            return True
             
     except Exception as e:
-        if DEV_MODE:
-            print(f"{Fore.RED}Error checking for updates: {e}{Style.RESET_ALL}")
+        print(f"{Fore.RED}Error checking for updates: {e}{Style.RESET_ALL}")
         return False
 
 def check_and_install_requirements():
