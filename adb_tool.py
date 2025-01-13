@@ -30,7 +30,7 @@ installation_results = {
 # Определяем режим разработки через переменную окружения
 DEV_MODE = False
 
-CURRENT_VERSION = "0.2"
+CURRENT_VERSION = "0.3"
 GITHUB_REPO = "housemice/QS_Li"
 GITHUB_API_URL = f"https://api.github.com/repos/{GITHUB_REPO}/releases/latest"
 
