@@ -145,14 +145,24 @@ def menu():
     """
     Displays and handles the main menu with auto-refresh
     """
-    # Проверяем обновления при запуске
-    if check_for_updates():
-        time.sleep(2)  # Даем время прочитать сообщение об обновлении
-    
     last_vin = None
     last_status = None
     
-    # Определяем словарь соответствия пунктов меню и действий
+    # Определяем пункты меню
+    choices = [
+        f"{Fore.RED}🗑️  Remove all apps{Style.RESET_ALL}          - Uninstall all user applications",
+        f"{Fore.RED}📱  Remove selected apps{Style.RESET_ALL}     - Choose specific apps to uninstall",
+        f"{Fore.GREEN}📦  Install Custom Apps{Style.RESET_ALL}      - Install APKs from Custom_Apps folder",
+        f"{Fore.GREEN}🚀  Install launcher{Style.RESET_ALL}         - Install system launcher",
+        f"{Fore.GREEN}🔄  Install counter reset{Style.RESET_ALL}    - Install counter reset application",
+        f"{Fore.GREEN}⚙️   Install standard apps{Style.RESET_ALL}    - Install and configure all required apps",
+        f"{Fore.BLUE}💾  Download device files{Style.RESET_ALL}    - Save device APKs to Desktop",
+        f"{Fore.BLUE}🔄  Refresh connection status{Style.RESET_ALL} - Check device connection",
+        f"{Fore.BLUE}ℹ️   Help{Style.RESET_ALL}                     - Show version and contact info",
+        f"{Fore.YELLOW}❌  Exit{Style.RESET_ALL}                     - Close the program"
+    ]
+    
+    # Определяем словарь соответствия
     actions_map = {
         f"{Fore.RED}🗑️  Remove all apps{Style.RESET_ALL}          - Uninstall all user applications": "Delete all apps",
         f"{Fore.RED}📱  Remove selected apps{Style.RESET_ALL}     - Choose specific apps to uninstall": "Delete selected apps",
@@ -161,13 +171,14 @@ def menu():
         f"{Fore.GREEN}🔄  Install counter reset{Style.RESET_ALL}    - Install counter reset application": "Install reset app",
         f"{Fore.GREEN}⚙️   Install standard apps{Style.RESET_ALL}    - Install and configure all required apps": "Install apps",
         f"{Fore.BLUE}💾  Download device files{Style.RESET_ALL}    - Save device APKs to Desktop": "Download files",
+        f"{Fore.BLUE}🔄  Refresh connection status{Style.RESET_ALL} - Check device connection": "Refresh connection",
         f"{Fore.BLUE}ℹ️   Help{Style.RESET_ALL}                     - Show version and contact info": "Help",
         f"{Fore.YELLOW}❌  Exit{Style.RESET_ALL}                     - Close the program": "Exit"
     }
 
-    # Добавляем пункт тестов если включен режим разработчика
     if DEV_MODE:
         test_choice = f"{Fore.MAGENTA}🧪  Run Tests{Style.RESET_ALL}               - Execute test scenarios"
+        choices.insert(0, test_choice)
         actions_map[test_choice] = "Run Tests"
     
     while True:
@@ -177,76 +188,57 @@ def menu():
             current_vin = get_device_vin() if connected else "No car connected"
             current_status = f"{Fore.GREEN}Connected to: {device_info}{Style.RESET_ALL}" if connected else f"{Fore.RED}No device connected{Style.RESET_ALL}"
             
-            # Обновляем экран только если изменился статус или VIN
-            if current_vin != last_vin or current_status != last_status:
-                clear_screen()
-                display_header(current_vin)
-                print(f"\n{current_status}")
-                last_vin = current_vin
-                last_status = current_status
+            # Обновляем экран
+            clear_screen()
+            display_header(current_vin)
+            print(f"\n{current_status}")
             
-            # Проверяем, есть ли ввод от пользователя
-            if msvcrt.kbhit() if os.name == 'nt' else select.select([sys.stdin], [], [], 0)[0]:
-                choices = [
-                    f"{Fore.RED}🗑️  Remove all apps{Style.RESET_ALL}          - Uninstall all user applications",
-                    f"{Fore.RED}📱  Remove selected apps{Style.RESET_ALL}     - Choose specific apps to uninstall",
-                    f"{Fore.GREEN}📦  Install Custom Apps{Style.RESET_ALL}      - Install APKs from Custom_Apps folder",
-                    f"{Fore.GREEN}🚀  Install launcher{Style.RESET_ALL}         - Install system launcher",
-                    f"{Fore.GREEN}🔄  Install counter reset{Style.RESET_ALL}    - Install counter reset application",
-                    f"{Fore.GREEN}⚙️   Install standard apps{Style.RESET_ALL}    - Install and configure all required apps",
-                    f"{Fore.BLUE}💾  Download device files{Style.RESET_ALL}    - Save device APKs to Desktop",
-                    f"{Fore.BLUE}ℹ️   Help{Style.RESET_ALL}                     - Show version and contact info",
-                    f"{Fore.YELLOW}❌  Exit{Style.RESET_ALL}                     - Close the program"
-                ]
-                
-                if DEV_MODE:
-                    choices.insert(0, f"{Fore.MAGENTA}🧪  Run Tests{Style.RESET_ALL}               - Execute test scenarios")
-                
-                questions = [
-                    inquirer.List(
-                        "action",
-                        message="Select an action using arrow keys:",
-                        choices=choices,
-                    )
-                ]
-                
-                answers = inquirer.prompt(questions)
-                if not answers:  # Если пользователь нажал Ctrl+C
-                    continue
-                    
-                action = actions_map.get(answers.get("action"))
-                
-                if action == "Exit":
-                    print(f"{Fore.GREEN}Exiting the program...{Style.RESET_ALL}")
-                    break
-                
-                clear_screen()
-                display_header(current_vin)
-                
-                # Выполняем выбранное действие
-                if action == "Delete all apps":
-                    delete_all_apps()
-                elif action == "Delete selected apps":
-                    list_and_delete_apps()
-                elif action == "Install Custom_Apps":
-                    install_custom_apps()
-                elif action == "Install launcher":
-                    install_launcher()
-                elif action == "Install reset app":
-                    install_reset_app()
-                elif action == "Install apps":
-                    install_apps()
-                elif action == "Download files":
-                    download_device_files()
-                elif action == "Help":
-                    print(f"{Fore.YELLOW}@dexnot{Style.RESET_ALL}")
-                    print("Version 0.2")
-                    pause_for_user()
-                elif action == "Run Tests" and DEV_MODE:
-                    run_tests()
+            # Показываем меню
+            questions = [
+                inquirer.List(
+                    "action",
+                    message="Select an action using arrow keys:",
+                    choices=choices,
+                )
+            ]
             
-            # Пауза перед следующей проверкой
-            time.sleep(1)
+            answers = inquirer.prompt(questions)
+            if not answers:  # Если пользователь нажал Ctrl+C
+                continue
+                
+            action = actions_map.get(answers.get("action"))
+            
+            if action == "Exit":
+                print(f"{Fore.GREEN}Exiting the program...{Style.RESET_ALL}")
+                break
+            
+            clear_screen()
+            display_header(current_vin)
+            
+            # Выполняем выбранное действие
+            if action == "Delete all apps":
+                delete_all_apps()
+            elif action == "Delete selected apps":
+                list_and_delete_apps()
+            elif action == "Install Custom_Apps":
+                install_custom_apps()
+            elif action == "Install launcher":
+                install_launcher()
+            elif action == "Install reset app":
+                install_reset_app()
+            elif action == "Install apps":
+                install_apps()
+            elif action == "Download files":
+                download_device_files()
+            elif action == "Refresh connection":
+                # Просто обновляем статус подключения
+                continue
+            elif action == "Help":
+                print(f"{Fore.YELLOW}@dexnot{Style.RESET_ALL}")
+                print("Version 0.2")
+                pause_for_user()
+            elif action == "Run Tests" and DEV_MODE:
+                run_tests()
                 
         except KeyboardInterrupt:
             print(f"\n{Fore.RED}Interrupted by user. Exiting...{Style.RESET_ALL}")
